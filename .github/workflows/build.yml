@@ -1,0 +1,99 @@
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    env:
+      # SHA-256 of WinDivert-2.2.2-A.zip, computed from the real download.
+      WINDIVERT_ZIP_SHA256: 63cb41763bb4b20f600b6de04e991a9c2be73279e317d4d82f237b150c5f3f15
+      # Upper limit for src/main.rs above the #[cfg(test)] line (see README).
+      MAX_SOURCE_LINES: '1500'
+
+    steps:
+      # actions/checkout v7.0.1
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Fail if Cargo.lock lists more than one package
+        run: |
+          packages=$(grep -c '^\[\[package\]\]' Cargo.lock)
+          echo "Cargo.lock packages: $packages"
+          test "$packages" -eq 1
+
+      - name: Fail if src/main.rs is over the line cap
+        run: |
+          test_line=$(grep -n '^#\[cfg(test)\]' src/main.rs | head -1 | cut -d: -f1)
+          lines=$((test_line - 1))
+          echo "src/main.rs lines before #[cfg(test)]: $lines (cap $MAX_SOURCE_LINES)"
+          test "$lines" -le "$MAX_SOURCE_LINES"
+
+      - name: Install the pinned Rust version
+        run: |
+          version=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)
+          rustup toolchain install "$version" --profile minimal --target x86_64-pc-windows-msvc
+          cargo --version
+
+      - name: Run the unit tests
+        run: cargo test --locked
+
+      - name: Build the release executable
+        run: |
+          cargo build --release --locked 2>&1 | tee build.log
+          if grep -q '^warning' build.log; then echo 'compiler warnings found'; exit 1; fi
+
+      - name: Download WinDivert 2.2.2 and check its SHA-256
+        run: |
+          curl -fsSL -o WinDivert-2.2.2-A.zip https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip
+          actual=$(sha256sum WinDivert-2.2.2-A.zip | cut -d' ' -f1)
+          echo "expected $WINDIVERT_ZIP_SHA256"
+          echo "actual   $actual"
+          test "$actual" = "$WINDIVERT_ZIP_SHA256"
+
+      - name: Assemble the release ZIP
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $name = "TinyLimit-$version-x64"
+          Expand-Archive WinDivert-2.2.2-A.zip -DestinationPath windivert
+          $driver = "windivert/WinDivert-2.2.2-A"
+          New-Item -ItemType Directory stage | Out-Null
+          Copy-Item target/release/tinylimit.exe stage/
+          Copy-Item "$driver/x64/WinDivert.dll" stage/
+          Copy-Item "$driver/x64/WinDivert64.sys" stage/
+          Copy-Item LICENSE stage/LICENSE
+          Copy-Item "$driver/LICENSE" stage/WinDivert-LICENSE.txt
+          Copy-Item README.md stage/
+          Compress-Archive -Path stage/* -DestinationPath "$name.zip"
+          Copy-Item "$name.zip" TinyLimit-x64.zip # same file under a fixed name, for the /releases/latest/download/ link
+          Get-FileHash stage/WinDivert.dll, stage/WinDivert64.sys -Algorithm SHA256 | Format-Table Hash, Path
+          "ZIP_NAME=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Write SHA256SUMS.txt
+        run: sha256sum "$ZIP_NAME" TinyLimit-x64.zip | tee SHA256SUMS.txt
+
+      # actions/attest-build-provenance v4.2.2 (only for public repositories; attestations need one)
+      - name: Attest the build
+        if: startsWith(github.ref, 'refs/tags/v') && github.event.repository.private == false
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: TinyLimit-*.zip
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$ZIP_NAME" TinyLimit-x64.zip SHA256SUMS.txt --title "TinyLimit $GITHUB_REF_NAME" --notes "Build of $GITHUB_REF_NAME. Verify with SHA256SUMS.txt, see the README."

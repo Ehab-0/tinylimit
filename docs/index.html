@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>TinyLimit - per-app speed limits for Windows</title>
+<meta name="description" content="Cap any Windows app's download and upload speed. One Rust source file with no third-party packages, built to be audited.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1b1f24;
+    --muted: #4b5563;
+    --card: #f3f5f8;
+    --border: #cfd6df;
+    --accent: #0b5cad;
+    --accent-text: #ffffff;
+    --warn: #fff4d6;
+    --hero: #e8f1fb;
+    --shadow: rgba(20, 30, 45, 0.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161b;
+      --text: #e6e9ee;
+      --muted: #aab3bf;
+      --card: #1c222a;
+      --border: #38414d;
+      --accent: #5aa7f0;
+      --accent-text: #0b1520;
+      --warn: #3a3217;
+      --hero: #182433;
+      --shadow: rgba(0, 0, 0, 0.5);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--accent); }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.92em; }
+  main { max-width: 860px; margin: 0 auto; padding: 0 16px 48px; }
+  h2 { font-size: 1.45rem; margin: 52px 0 8px; scroll-margin-top: 64px; }
+  h3 { font-size: 1.05rem; margin: 0 0 4px; }
+  .muted { color: var(--muted); }
+
+  nav { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); }
+  nav div { max-width: 860px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  nav strong { margin-right: auto; font-size: 1.05rem; }
+  nav a { text-decoration: none; color: var(--muted); font-size: 0.95rem; }
+  nav a:hover { color: var(--accent); }
+
+  .hero { background: var(--hero); border-bottom: 1px solid var(--border); }
+  .hero > div { max-width: 860px; margin: 0 auto; padding: 48px 16px 40px; text-align: center; }
+  h1 { font-size: 3rem; line-height: 1.1; margin: 0 0 12px; }
+  .lead { font-size: 1.25rem; color: var(--muted); margin: 0 auto 24px; max-width: 600px; }
+  .buttons { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
+  .button {
+    display: inline-block; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none;
+    background: var(--accent); color: var(--accent-text); border: 2px solid var(--accent);
+  }
+  .button.second { background: transparent; color: var(--accent); }
+  .small { font-size: 0.9rem; color: var(--muted); margin: 14px 0 0; }
+  .shot { display: block; max-width: 100%; height: auto; margin: 28px auto 0; border-radius: 10px; box-shadow: 0 12px 32px var(--shadow); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 32px 0 0; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 8px; text-align: center; }
+  .stat b { display: block; font-size: 2rem; line-height: 1.1; color: var(--accent); }
+  .stat span { font-size: 0.9rem; color: var(--muted); }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; padding: 0; list-style: none; counter-reset: step; }
+  .steps li { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; counter-increment: step; }
+  .steps li::before {
+    content: counter(step); display: inline-block; width: 28px; height: 28px; line-height: 28px; margin-bottom: 6px;
+    text-align: center; border-radius: 50%; background: var(--accent); color: var(--accent-text); font-weight: 700;
+  }
+  .checks { padding-left: 0; list-style: none; }
+  .checks li { padding: 4px 0 4px 28px; position: relative; }
+  .checks li::before { content: "\2713"; position: absolute; left: 4px; color: var(--accent); font-weight: 700; }
+  .warn { background: var(--warn); border: 1px solid var(--border); border-radius: 10px; padding: 8px 16px; }
+  pre { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 0.9rem; }
+  details { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; margin-top: 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 8px 0 2px; color: var(--muted); }
+  svg { width: 100%; height: auto; display: block; margin-top: 12px; }
+  svg rect { fill: var(--card); stroke: var(--border); stroke-width: 1.5; }
+  svg text { fill: var(--text); font: 13px system-ui, sans-serif; }
+  svg .note { fill: var(--muted); font-size: 11px; }
+  svg path { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 16px; color: var(--muted); }
+  footer a { margin-right: 14px; }
+  @media (max-width: 600px) {
+    h1 { font-size: 2.2rem; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid, .steps { grid-template-columns: 1fr; }
+    nav .hide-small { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav><div>
+  <strong>TinyLimit</strong>
+  <a class="hide-small" href="#features">Features</a>
+  <a class="hide-small" href="#trust">Trust</a>
+  <a class="hide-small" href="#built">How it is built</a>
+  <a href="#faq">FAQ</a>
+  <a href="https://github.com/Ehab-0/tinylimit">GitHub</a>
+</div></nav>
+
+<header class="hero"><div>
+  <h1>TinyLimit</h1>
+  <p class="lead">Cap any Windows app's download and upload speed. One source file you can read in an hour.</p>
+  <div class="buttons">
+    <a class="button" href="https://github.com/Ehab-0/tinylimit/releases/latest/download/TinyLimit-x64.zip">Download (.zip)</a>
+    <a class="button second" href="https://github.com/Ehab-0/tinylimit/releases/latest">All releases</a>
+  </div>
+  <p class="small">Windows 10 and 11, 64-bit &nbsp;·&nbsp; free, MIT licence &nbsp;·&nbsp; run as administrator</p>
+  <img class="shot" src="screenshot.png" width="866" height="799" alt="The TinyLimit window: a searchable list of running apps, download and upload fields, an Apply button, the list of active limits, and the Remember limits checkbox.">
+</div></header>
+
+<main>
+
+<div class="stats">
+  <div class="stat"><b>1</b><span>source file</span></div>
+  <div class="stat"><b>0</b><span>third-party packages</span></div>
+  <div class="stat"><b>0</b><span>network connections</span></div>
+  <div class="stat"><b>1</b><span>file written</span></div>
+</div>
+
+<h2 id="features">What it does</h2>
+<div class="grid">
+  <div class="card"><h3>Per-app limits</h3><p>Pick an app by its .exe name. All its processes share one cap, so a many-process browser gets one limit in total.</p></div>
+  <div class="card"><h3>Download and upload</h3><p>Two separate speeds in KB/s. Leave one empty for unlimited.</p></div>
+  <div class="card"><h3>TCP and UDP</h3><p>IPv4 and IPv6. Traffic to the same PC (loopback) is never touched.</p></div>
+  <div class="card"><h3>Applies within a second</h3><p>New, changed and removed limits take effect fast, including on connections that are already open.</p></div>
+  <div class="card"><h3>Remembers limits</h3><p>Saved to a plain text file beside the .exe, and enforced at start-up. One checkbox turns it off.</p></div>
+  <div class="card"><h3>Safe to close</h3><p>Limits last only while the window is open. Close it, or crash it, and traffic flows normally.</p></div>
+</div>
+
+<h2>How to use it</h2>
+<ol class="steps">
+  <li><h3>Unzip</h3><p class="muted">Keep the three files together in one folder.</p></li>
+  <li><h3>Run as administrator</h3><p class="muted">Start <code>tinylimit.exe</code>. Windows asks for permission.</p></li>
+  <li><h3>Pick, type, Apply</h3><p class="muted">Choose an app, enter KB/s, press Apply.</p></li>
+</ol>
+
+<h2 id="trust">Why you can trust it</h2>
+<p>A tool like this sits in the path of your network traffic, so each claim below can be checked in a minute.</p>
+<ul class="checks">
+  <li>One source file: <a href="https://github.com/Ehab-0/tinylimit/blob/main/src/main.rs"><code>src/main.rs</code></a>.</li>
+  <li>Zero third-party packages: <a href="https://github.com/Ehab-0/tinylimit/blob/main/Cargo.lock"><code>Cargo.lock</code></a> lists only TinyLimit itself.</li>
+  <li>It makes no network connections and opens no sockets.</li>
+  <li>It writes one text file, <code>limits.txt</code>, beside the .exe.</li>
+  <li>Releases are built in public by <a href="https://github.com/Ehab-0/tinylimit/blob/main/.github/workflows/build.yml">GitHub Actions</a>.</li>
+</ul>
+
+<h2>Verify your download</h2>
+<p>Compare the ZIP's SHA-256 with <code>SHA256SUMS.txt</code> from the same release, then check the build attestation:</p>
+<pre><code>(Get-FileHash TinyLimit-x64.zip -Algorithm SHA256).Hash
+gh attestation verify TinyLimit-x64.zip --repo Ehab-0/tinylimit</code></pre>
+
+<h2>How it works</h2>
+<p>A flow listener learns which app owns each new connection. While at least one limit exists, the packet loop receives every non-loopback TCP and UDP packet through the WinDivert driver, and passes it on at once, delays it, or drops it. Delayed packets wait in a queue until a release thread sends them on time. Download limiting is indirect: delayed packets make the sender slow down.</p>
+<svg viewBox="0 0 640 200" role="img" aria-label="Parts of TinyLimit: window, flow listener, packet loop, release queue and the WinDivert driver">
+  <rect x="10" y="10" width="140" height="44" rx="6"/>
+  <text x="80" y="37" text-anchor="middle">Window</text>
+  <rect x="250" y="10" width="140" height="44" rx="6"/>
+  <text x="320" y="37" text-anchor="middle">Flow listener</text>
+  <rect x="250" y="90" width="140" height="44" rx="6"/>
+  <text x="320" y="117" text-anchor="middle">Packet loop</text>
+  <rect x="490" y="90" width="140" height="44" rx="6"/>
+  <text x="560" y="117" text-anchor="middle">Release queue</text>
+  <rect x="170" y="150" width="300" height="40" rx="6"/>
+  <text x="320" y="175" text-anchor="middle">WinDivert driver (third-party, kernel)</text>
+  <text class="note" x="170" y="28">shared limits</text>
+  <text class="note" x="328" y="76">app owning each port</text>
+  <text class="note" x="400" y="106">early: wait</text>
+  <path d="M150 32 H250"/>
+  <path d="M320 54 V90"/>
+  <path d="M390 112 H490"/>
+  <path d="M320 134 V150"/>
+  <path d="M560 134 V170 H470"/>
+</svg>
+
+<h2 id="built">How it is built</h2>
+<p>TinyLimit runs as administrator and sits in the path of your network traffic, so the design goal is that anyone can check it for themselves. Features and peak speed come second to that.</p>
+<div class="grid">
+  <div class="card"><h3>Specification first</h3><p><a href="https://github.com/Ehab-0/tinylimit/blob/main/SPEC.md">SPEC.md</a> was written before the code. It numbers every rule, sets hard limits, and lists what is out of scope: no service, tray icon, history, quotas or update checks.</p></div>
+  <div class="card"><h3>Small, and enforced</h3><p>One file, standard library only. The build fails if <code>Cargo.lock</code> lists a second package or the file passes its line cap. The spec asked for 900 lines; the program needed 1,470, so the cap is 1,500.</p></div>
+  <div class="card"><h3>Plain, not golfed</h3><p>One statement per line, descriptive names, a banner comment for each part. Lines are a proxy for reading time, so nothing was compressed to hit a number.</p></div>
+  <div class="card"><h3>Easy to read in order</h3><p>Logic with no Windows types, like the speed budgets and the <code>limits.txt</code> parser, has unit tests that run on any system. Every call into Windows or the driver sits in a commented <code>unsafe</code> block (37 of them).</p></div>
+  <div class="card"><h3>Fails safe</h3><p>After a crash, a kill or a close, Windows closes the driver handles and traffic flows normally. With no limits set, no packets are diverted. No service, no registry.</p></div>
+  <div class="card"><h3>Looked up, and pinned</h3><p>Windows structures were checked against Microsoft's docs and SDK headers, WinDivert against its official header. The Rust version, the WinDivert hash and every GitHub Action are fixed in the repository.</p></div>
+</div>
+<p class="muted">No third party has audited the code, and the one-hour reading time has not been measured.</p>
+
+<h2 id="faq">Questions</h2>
+<details><summary>Why does it need administrator rights?</summary><p>It uses the WinDivert driver to hold back network packets, and Windows lets only an administrator open that driver.</p></details>
+<details><summary>Do limits keep working after I close the window?</summary><p>No. Limits apply only while the window is open. Closing it stops all limiting. If you leave "Remember limits" ticked, they come back the next time you start the tool.</p></details>
+<details><summary>Is the download cap exact?</summary><p>Download limiting is indirect: packets are delayed after they reach your PC, and the remote server then slows down. Expect the speed to settle within a few seconds.</p></details>
+<details><summary>Why might my antivirus flag it?</summary><p>WinDivert is a signed, open-source kernel driver that diverts packets. Packet-diverting drivers look like malware to some scanners. It stays loaded until you reboot, or until you run <code>sc stop WinDivert</code> in an administrator prompt.</p></details>
+<details><summary>Why does Windows show a SmartScreen warning?</summary><p>The .exe is not code-signed, because a certificate is a yearly paid cost. Use the checksum and attestation above to confirm it is the file GitHub built.</p></details>
+
+<h2>What to know first</h2>
+<div class="warn">
+  <ul>
+    <li>WinDivert is third-party kernel code. Antivirus may flag it, and it stays loaded until reboot (or <code>sc stop WinDivert</code>).</li>
+    <li>The author has run TinyLimit by hand on one Windows 11 PC. It has not been tested on other PCs, on Windows 10, or with VPN software.</li>
+  </ul>
+</div>
+<p>Known limitations:</p>
+<ul>
+  <li>While any limit is active, all TCP and UDP packets pass through the tool; unlimited apps' packets are passed straight on.</li>
+  <li>Connections are matched to apps by local port, protocol and IP version. Two apps using the same port number on different local addresses can be confused.</li>
+  <li>The first few packets of a brand-new connection may pass before its owner is known.</li>
+  <li>Download limiting is indirect, and speed settles within a few seconds.</li>
+  <li>Not tested with VPN software.</li>
+  <li>64-bit Windows only.</li>
+</ul>
+
+<footer>
+  <a href="https://github.com/Ehab-0/tinylimit">Source</a>
+  <a href="https://github.com/Ehab-0/tinylimit/blob/main/README.md">README</a>
+  <a href="https://github.com/Ehab-0/tinylimit/blob/main/SPEC.md">Specification</a>
+  <a href="https://github.com/Ehab-0/tinylimit/blob/main/LICENSE">Licence (MIT)</a>
+</footer>
+
+</main>
+</body>
+</html>
